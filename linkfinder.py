@@ -9,6 +9,7 @@ os.environ["BROWSER"] = "open"
 
 # Import libraries
 import re, sys, glob, html, argparse, jsbeautifier, webbrowser, subprocess, base64, ssl, xml.etree.ElementTree, urllib.error
+from urllib.parse import urlparse, urljoin
 
 from gzip import GzipFile
 from string import Template
@@ -189,6 +190,7 @@ def getContext(list_matches, content, include_delimiter=0, context_delimiter_str
 
     return items
 
+
 def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
     '''
     Parse Input
@@ -239,6 +241,7 @@ def parser_file(content, regex_str, mode=1, more_regex=None, no_dup=1):
             filtered_items.append(item)
 
     return filtered_items
+
 
 def cli_output(endpoints):
     '''
@@ -292,6 +295,54 @@ def check_url(url):
     else:
         return False
 
+def to_full_urls(base, endpoints, keep_query=False):
+    base = to_full_url(base)
+    for e in endpoints:
+        relative = e['link']
+        relative_p = urlparse(relative)
+        query = ''
+        if keep_query and len(relative_p.query) > 0:
+            query = '?' + relative_p.query
+        if keep_query and len(relative_p.fragment) > 0:
+            query += '#' + relative_p.fragment
+        if len(relative_p.netloc) == 0:
+            path = relative_p.path.replace('\\', '/')
+            e['link'] = urljoin(base, path) + query
+        else:
+            # this also work if relative hostname != base hostname
+            e['link'] = to_full_url(relative) + query
+
+    return endpoints
+
+
+def to_full_url(url):
+    url = urlparse(url)
+    if url.scheme == '':
+        print(f"Invalid URL, no scheme: {url}")
+        return url
+    if url.netloc == '':
+        print(f"Invalid URL, no netloc: {url}")
+        return url
+
+    if url.port is None:
+        port = 80 if url.scheme == 'http' else 443
+        netloc = f"{url.netloc}:{port}"
+    else:
+        netloc = url.netloc
+    full = f"{url.scheme}://{netloc}"
+    path = url.path.replace('\\', '/')
+    full = urljoin(full, path)
+    
+    return full
+
+
+def usage():
+    print(f"""
+    {sys.argv[0]} [<base URL>] [<relative URL>]
+    You can also pass relative URLs on STDID but then you can't fill relative URL argument
+    """)
+    sys.exit(1)
+
 if __name__ == "__main__":
     # Parse command line
     parser = argparse.ArgumentParser()
@@ -316,6 +367,9 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--cookies",
                         help="Add cookies for authenticated JS files",
                         action="store", default="")
+    parser.add_argument('-q', '--query',
+                        action='store_true',
+                        help='Determine whether to keep query & fragment of collected URLs')
     default_timeout = 10
     parser.add_argument("-t", "--timeout",
                         help="How many seconds to wait for the server to send data before giving up (default: " + str(default_timeout) + " seconds)",
@@ -345,6 +399,7 @@ if __name__ == "__main__":
             url = url['url']
 
         endpoints = parser_file(file, regex_str, mode, args.regex)
+        endpoints = to_full_urls(url, endpoints, args.query)
         if args.domain:
             for endpoint in endpoints:
                 endpoint = html.escape(endpoint["link"]).encode('ascii', 'ignore').decode('utf8')
@@ -356,6 +411,7 @@ if __name__ == "__main__":
                 try:
                     file = retryable_request(endpoint)
                     new_endpoints = parser_file(file, regex_str, mode, args.regex)
+                    new_endpoints = to_full_urls(endpoint, new_endpoints, args.query)
                     if args.output == 'cli':
                         cli_output(new_endpoints)
                     else:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
-from linkfinder import regex_str, parser_file
+from linkfinder import regex_str, parser_file, to_full_urls
 
 # Imitate cli_output function
 def get_parse_cli(str):
@@ -63,3 +63,14 @@ def test_parser_unique():
     '''
     assert get_parse_cli("href=\"http://example.com\";document.window.location=\"http://example.com\"") == ["http://example.com"]
     assert set(get_parse_cli("href=\"http://example.com\";<img src=\"http://example.com\">;href=\"/api/create.php\"")) == set(["http://example.com", "/api/create.php"])
+
+def test_to_full_urls():
+    assert to_full_urls('https://google.com', [{'link':'something.php'}])[0]['link'] == 'https://google.com:443/something.php'
+    assert to_full_urls('https://google.com/blah', [{'link':'something.php'}])[0]['link'] == 'https://google.com:443/something.php'
+    assert to_full_urls('https://google.com/blah/', [{'link':'something.php'}])[0]['link'] == 'https://google.com:443/blah/something.php'
+    assert to_full_urls('https://google.com:839/blah/', [{'link':'/../something.php'}])[0]['link'] == 'https://google.com:839/something.php'
+    assert to_full_urls('https://google.com/', [{'link':'./something.php'}])[0]['link'] == 'https://google.com:443/something.php'
+    assert to_full_urls('https://google.com', [{'link':'\\..\\something.php'}])[0]['link'] == 'https://google.com:443/something.php'
+    assert to_full_urls('https://google.com?param1=23', [{'link':'\\..\\something.php?param2=11'}], True)[0]['link'] == 'https://google.com:443/something.php?param2=11'
+    assert to_full_urls('https://google.com', [{'link':'\\..\\something.php?a=b#test'}], True)[0]['link'] == 'https://google.com:443/something.php?a=b#test'
+    assert to_full_urls('https://google.com', [{'link':'\\..\\something.php#test'}], True)[0]['link'] == 'https://google.com:443/something.php#test'
