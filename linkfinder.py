@@ -8,7 +8,7 @@ import os
 os.environ["BROWSER"] = "open"
 
 # Import libraries
-import re, sys, glob, html, argparse, jsbeautifier, webbrowser, subprocess, base64, ssl, xml.etree.ElementTree
+import re, sys, glob, html, argparse, jsbeautifier, webbrowser, subprocess, base64, ssl, xml.etree.ElementTree, urllib.error
 
 from gzip import GzipFile
 from string import Template
@@ -115,7 +115,16 @@ def parser_input(input):
 be found (maybe you forgot to add http/https).")]
 
 
-def send_request(url):
+def retryable_request(url):
+    try:
+        return send_request(url)
+    except urllib.error.URLError as err:
+        if str(err).startswith('<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]'):
+            return send_request(url, False)
+        raise err
+
+
+def send_request(url, verify_ssl = True):
     '''
     Send requests with Requests
     '''
@@ -129,12 +138,11 @@ def send_request(url):
     q.add_header('Accept-Encoding', 'gzip')
     q.add_header('Cookie', args.cookies)
 
-    try:
+    if verify_ssl:
         sslcontext = ssl.create_default_context()
-        response = urlopen(q, timeout=args.timeout, context=sslcontext)
-    except:
-        sslcontext = ssl.create_default_context()
-        response = urlopen(q, timeout=args.timeout, context=sslcontext)
+    else:
+        sslcontext = ssl._create_unverified_context()
+    response = urlopen(q, timeout=args.timeout, context=sslcontext)
 
     if response.info().get('Content-Encoding') == 'gzip':
         data = GzipFile(fileobj=readBytesCustom(response.read())).read()
@@ -329,7 +337,7 @@ if __name__ == "__main__":
     for url in urls:
         if not args.burp:
             try:
-                file = send_request(url)
+                file = retryable_request(url)
             except Exception as e:
                 parser_error("invalid input defined or SSL error: %s" % e)
         else:
@@ -346,7 +354,7 @@ if __name__ == "__main__":
                 print("Running against: " + endpoint)
                 print("")
                 try:
-                    file = send_request(endpoint)
+                    file = retryable_request(endpoint)
                     new_endpoints = parser_file(file, regex_str, mode, args.regex)
                     if args.output == 'cli':
                         cli_output(new_endpoints)
